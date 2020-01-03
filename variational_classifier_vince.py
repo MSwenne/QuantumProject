@@ -23,61 +23,6 @@ def measure(q):
     for i in range(len(q)):
         yield cirq.measure(q[i], key=str(i))
 
-def U_phi_it(q, W):
-    rot1 = cirq.ZPowGate(exponent=W[0]/pi)
-    rot2 = cirq.ZPowGate(exponent=W[1]/pi)
-    rot3 = cirq.ZPowGate(exponent=W[2]/pi)
-    rot12= cirq.ZPowGate(exponent=((pi-W[0])*(pi-W[1]))/pi)
-    rot13= cirq.ZPowGate(exponent=((pi-W[0])*(pi-W[2]))/pi)
-    rot23= cirq.ZPowGate(exponent=((pi-W[1])*(pi-W[2]))/pi)
-    # apply
-    yield cirq.H(q[0])
-    yield cirq.H(q[1])
-    yield cirq.H(q[2])
-    yield rot1(q[0])
-    yield rot2(q[1])
-    yield rot3(q[2])
-    yield rot12.on(q[0]).controlled_by(q[1])
-    yield rot13.on(q[0]).controlled_by(q[2])
-    yield rot23.on(q[1]).controlled_by(q[2])
-    yield cirq.H(q[0])
-    yield cirq.H(q[1])
-    yield cirq.H(q[2])
-    yield rot1(q[0])
-    yield rot2(q[1])
-    yield rot3(q[2])
-    yield rot12.on(q[0]).controlled_by(q[1])
-    yield rot13.on(q[0]).controlled_by(q[2])
-    yield rot23.on(q[1]).controlled_by(q[2])
-
-def W_theta_it(q, theta):
-    m = len(q)
-    for i in range(m):
-        rot1 = cirq.ZPowGate(exponent=theta[2*i]/pi)
-        yield rot1(q[i])
-        rot2 = cirq.Ry(theta[2*i+1])
-        yield rot2(q[i])
-    
-    yield cirq.CZ.on(q[0],q[1])
-    yield cirq.CZ.on(q[0],q[2])
-    yield cirq.CZ.on(q[1],q[2])
-    
-    for i in range(m):
-        rot1 = cirq.ZPowGate(exponent=theta[6+(2*i)]/pi)
-        yield rot1(q[i])
-        rot2 = cirq.Ry(theta[6+(2*i)+1])
-        yield rot2(q[i])
-        
-    yield cirq.CZ.on(q[0],q[1])
-    yield cirq.CZ.on(q[0],q[2])
-    yield cirq.CZ.on(q[1],q[2])
-    
-    for i in range(m):
-        rot1 = cirq.ZPowGate(exponent=theta[12+(2*i)]/pi)
-        yield rot1(q[i])
-        rot2 = cirq.Ry(theta[12+(2*i)+1])
-        yield rot2(q[i])
-
 def circuit_it(q, W, theta):
     yield U_phi_it(q, W)
     yield W_theta_it(q, theta)
@@ -176,7 +121,8 @@ Y = df.iloc[:,3].to_numpy()
 
 nr_par = (nr_qubits*2)*(nr_layers+1)
 #theta = np.random.rand(nr_par,)*(2*pi)
-theta_0 = np.ones([nr_par,])*pi
+#shift = np.ones([nr_par,])*pi
+theta_0 = np.ones([nr_par,])*pi #np.zeros([nr_par,])
 theta = theta_0
 p = np.zeros([batch_size,])
 eye = np.eye(nr_par)
@@ -184,7 +130,7 @@ c = 0.1
 a = 2*pi*0.1
 alpha = 0.602 #0.3
 gamma = 0.101
-nr_epochs = 100
+nr_epochs = 10
 
 np.zeros([nr_epochs,])
 
@@ -198,15 +144,15 @@ for k in range(1,nr_epochs+1):
     gradient = np.zeros([nr_par,])
     for i in range(nr_par):
         print(".", end='')
-        theta_plus = np.minimum(theta+c_n*eye[:,i],2*pi)
-        theta_minus= np.maximum(theta-c_n*eye[:,i],-2*pi)
+        theta_plus = (theta+c_n*eye[:,i]) % (2*pi)
+        theta_minus= (theta-c_n*eye[:,i]) % (2*pi)
         J_plus = J(theta_plus, X, Y, nr_qubits, nr_layers, batch_ix, shots)
         J_minus= J(theta_minus, X, Y, nr_qubits, nr_layers, batch_ix, shots)
         gradient[i] = (J_plus - J_minus)/(2*c_n)
     print(".")
     end = time.time()
     print("iteration:",k," loss: ",J_plus," time: ",end-start)
-    theta = np.minimum(np.maximum(theta - a_n*gradient, -2*pi),2*pi)
+    theta = (theta - a_n*gradient) % (2*pi)
 
 
 
