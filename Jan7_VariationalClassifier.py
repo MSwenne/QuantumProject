@@ -12,27 +12,28 @@ Created on Tue Jan  7 10:49:07 2020
 @author: vshas
 """
 
+import matplotlib.pyplot as plt
 import tensorflow as tf
-import cirq
+import pandas as pd
+from math import pi
 import numpy as np
 import random
 import sympy
-from math import pi
 import math
+import cirq
 import time
-import pandas as pd
-import matplotlib.pyplot as plt
-#matplotlib inline
+import os
 
 # Initialisation of some parameters
-np.random.seed(239)     # Random seed
+seed = 239              # Random seed
+np.random.seed(seed)    # Initialising andom seed
 nr_qubits = 3           # Number of qubits
 nr_layers = 4           # Number of layers
 batch_size = 100        # Number of datapoints per training batch
 shots = 2000            # Number of shots per datapoint
 iterations = 25         # Number of iterations
+file = "data{}.txt"     # Base filename for writing away data
 key = ""                # String that contains all qubit-keynames
-
 for i in range(nr_qubits):
     key += str(i)
         
@@ -230,6 +231,52 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
 	if iteration == total: 
 		print()
 
+# Reads the data from a file
+def read_from_file(filename):
+    f = open(filename,"r")
+    f.readline()
+    nr_qubits  = int(f.readline().split(" ")[-1])
+    nr_layers  = int(f.readline().split(" ")[-1])
+    batch_size = int(f.readline().split(" ")[-1])
+    shots      = int(f.readline().split(" ")[-1])
+    iterations = int(f.readline().split(" ")[-1])
+    seed       = int(f.readline().split(" ")[-1])
+    Tot_Loss = []
+    f.readline()
+    f.readline()
+    for i in range(iterations):
+        Tot_Loss.append(float(f.readline().strip()))
+    theta = []
+    f.readline()
+    for i in range((nr_qubits*2)*(nr_layers+1)):
+        theta.append(float(f.readline().strip()))
+    return nr_qubits, nr_layers, batch_size, shots, iterations, seed, Tot_Loss, theta
+
+# Writes data to a file
+def write_to_file(var)
+    # Open new file
+    counter = 0
+    filename = file
+    while os.path.isfile(filename.format(counter)):
+        counter += 1
+    filename = filename.format(counter)
+    f = open(filename,"w+")
+    # Write Params, Tot_Loss and end_theta to file
+    f.write("RUN PARAMS:\n")
+    f.write("\tnr_qubits:  %d\n" % var[0])
+    f.write("\tnr_layers:  %d\n" % var[1])
+    f.write("\tbatch_size: %d\n" % var[2])
+    f.write("\tshots:      %d\n" % var[3])
+    f.write("\titerations: %d\n" % var[4])
+    f.write("\tseed:       %d\n" % var[5])
+    f.write("\tRESULTS:\n")
+    f.write("\t\tTot_Loss:\n\t\t\t")
+    f.write("\n\t\t\t".join(str(elem) for elem in var[6]))
+    f.write("\n\t\teind_theta:\n\t\t\t")
+    f.write("\n\t\t\t".join(str(elem) for elem in var[7]))
+    f.write("\t\tAccuracy train %f\n" % var[8])
+    f.write("\t\tAccuracy test  %f\n" % var[9])
+    
 # Main function which runs the variational classifier
 def main():
     # Set up qubit register
@@ -315,6 +362,9 @@ def main():
     acc_s = accuracy(Y_s, p_s, theta[-1])
     print("train accuracy: ", acc_t)
     print("test accuracy:", acc_s)
+    
+    # Write important data to file
+    write_to_file([nr_qubits, nr_layers, batch_size, shots, iterations, seed, Tot_Loss, theta, acc_t, acc_s])
     
 # Start main
 main()
