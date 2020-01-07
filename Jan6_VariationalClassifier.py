@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jan  6 13:49:33 2020
+Parameterized quantum circuits for supervised learning
 
-@author: vshas
+@author: Vince Hasse
+@author: Martijn Swenne
+Last edited:
 """
 
 import tensorflow as tf
@@ -17,78 +19,128 @@ import pandas as pd
 import matplotlib.pyplot as plt
 #matplotlib inline
 
-#np.random.seed(111) # 42d
-
+# Initialisation of some parameters
+np.random.seed(239)     # Random seed
+nr_qubits = 3           # Number of qubits
+nr_layers = 4           # Number of layers
+batch_size = 100        # Number of datapoints per training batch
+shots = 2000            # Number of shots per datapoint
+iterations = 10         # Number of iterations
+key = ""                # String that contains all qubit-keynames
+for i in range(nr_qubits):
+    key += str(i)
+        
+# U_phi gate needed for fancy_U
 def U_phi(q, W):
+    # Apply rotation on every qubit based on datapoint
     for i in range(len(q)):
-        rot = cirq.ZPowGate(exponent=W[i]/pi)
+        rot = cirq.ZPowGate(exponent=W[i]/pi) 
         yield rot(q[i])
+    # Apply controlled-rotation on every qubit-pair based on datapoint
     for i in range(len(q)-1):
         for j in range(i+1,len(q)):
             rot = cirq.ZPowGate(exponent=((pi-W[i])*(pi-W[j]))/pi)
             yield rot.on(q[j]).controlled_by(q[i])
-            
+
+# U_phi initialises the qubits in a state based on the current datapoint
 def fancy_U(q, W):
+    # Apply a Hadamard on every qubit
     for i in range(len(q)):
         yield cirq.H(q[i])
+    # Apply U_phi
     yield U_phi(q, W)
+    # Apply a Hadamard on every qubit
     for i in range(len(q)):
         yield cirq.H(q[i])
+    # Apply U_phi
     yield U_phi(q, W)
 
-def W_theta(q, theta):
+# W_theta_p applies one layer of W_theta
+def W_theta_p(q, theta):
+    # Apply a controlled-Z gate on every qubit pair (i,i+1) based on theta
     for i in range(len(q)):
         yield cirq.CZ.on(q[(i+1)%len(q)],q[i])
+    # Apply a Y and Z rotation on every qubit based on theta
     for i in range(len(q)):
-        rot = cirq.ZPowGate(exponent=theta[2*i]/pi)
-        yield rot(q[i])
-        rot = cirq.Ry(theta[2*i+1])
-        yield rot(q[i])
+        rot_z = cirq.ZPowGate(exponent=theta[2*i]/pi)
+        rot_y = cirq.Ry(theta[2*i+1])
+        yield rot_z(q[i])
+        yield rot_y(q[i])
 
+# W_theta applies a mapping from the qubits in the state based on the current
+# datapoint to a quantum state that, when measured, can be mapped to a label
+def W_theta(q, theta, layers):
+    # Apply a Y and Z rotation on every qubit based on theta
+    for i in range(len(q)):
+        rot = cirq.ZPowGate(exponent = theta[2*i]/pi)
+        rot = cirq.Ry(theta[2*i + 1])
+        yield rot(q[i])
+        yield rot(q[i])
+    # Apply "layers" amount of layers using W_theta_p
+    for i in range(1,layers+1):
+        yield W_theta_p(q, theta[range(6*(i),6*(i+1))])
+        
+# Measures all qubits
 def measure(q):
     for i in range(len(q)):
         yield cirq.measure(q[i], key=str(i))
         
+# Builds the variational circuit
 def circuit(q, W, theta, layers):
     yield fancy_U(q,W)
-    for i in range(len(q)):
-        rot = cirq.ZPowGate(exponent = theta[2*i]/pi)
-        yield rot(q[i])
-        rot = cirq.Ry(theta[2*i + 1])
-        yield rot(q[i])
-    
-    for i in range(1,layers+1):
-        yield W_theta(q, theta[range(6*(i),6*(i+1))])
+    yield W_theta(q, theta, layers)
     yield measure(q)
 
+# Returns the absolute loss of the predictions
 def abs_loss(labels, predictions):
-    loss=0
+    loss = 0 
     pred = np.round(predictions)
     for l, p in zip(labels, pred):
         loss = loss + np.abs(l - p)
     loss = loss / len(labels)
     return loss
 
+# Returns the squared loss of the predictions
 def squared_loss(labels, predictions):
-    loss =0
+    loss = 0
     for l, p in zip(labels, predictions):
         loss = loss + (l - p)**2
     loss = loss/ len(labels)
     return loss
 
+# Returns the accuracy over the predicted labels of a dataset
+def accuracy(labels, predictions):
+    loss = 0
+    for l, p in zip(labels, predictions):
+        if abs(l - p) < 1e-5:
+            loss = loss + 1
+    loss = loss / len(labels)
+    return loss
+
+# Returns a probability of seeing label 1 for a datapoint
+def probability_estimate(results):
+    counter = (results.multi_measurement_histogram(keys="012"))
+    p_hold = 0
+    for j in counter:
+        if j.count(1) % 2 == 1:
+            p_hold += counter[j] 
+    return p_hold/shots
+
+# TODO
 def assign_label(p, Y, b):
-    Y_pm = 2*Y -1
+    Y_pm = 2 * Y - 1
     labels = np.ones([len(p),])*-1
     for i in range(len(p)):
-        if (p[i] > ((1 - p[i]) - Y_pm[i]*b)):
+        if (p[i] > ((1 - p[i]) - b)):
             labels[i] = 1
     return labels    
 
+# TODO
 def R(y, probs, b):
     p = 1 - probs
     y = 2*y - 1
     loss = 0
-    #R = shots
+    R = 200
     for k in range(len(y)):
         if y[k] == 1:
             x = (math.sqrt(R)*(.5 - (probs[k] - y[k]*(b/2))))/math.sqrt(2*probs[k]*p[k])
@@ -98,6 +150,7 @@ def R(y, probs, b):
     loss = loss / len(probs)
     return loss
 
+# TODO
 def J_w(theta, X, qubits, nr_layers, shots):
     simulator = cirq.Simulator()
     p = np.zeros([len(X),])
@@ -106,14 +159,27 @@ def J_w(theta, X, qubits, nr_layers, shots):
         c = cirq.Circuit()
         c.append(circuit(qubits, X[i], theta, nr_layers))
         results = simulator.run(c, repetitions=shots)
-        counter = (results.multi_measurement_histogram(keys="012"))
-        for j in counter:
-            if j.count(1) % 2 == 1:
-                p_hold += counter[j]
+        probability_estimate(results)
         p[i] = p_hold/shots
     return p
 
+def calibration():
+    stat = 25
+    hold_c0 = parameters[0]
+    initial_c = parameters[1]
+    delta_obj = 0
+    for i in range(stat):
+       print(i)
+       delta = 2 * np.random.randint(2, size = len(theta)) - 1
+       obj_plus = J_w(theta+initial_c*delta, X_t, qubits, nr_layers, shots)
+       obj_minus = J_w(theta+initial_c*delta, X_t, qubits, nr_layers, shots)
+       loss_p = squared_loss(Y_t, obj_plus)
+       loss_m = squared_loss(Y_t, obj_minus)
+       delta_obj += np.absolute(loss_p - loss_m) / stat
 
+    #c_new = hold_c0 * 2 / delta_obj * initial_c    
+
+# Helpful function that shows a progress bar
 def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█'):
 	"""
 	Call in a loop to create terminal progress bar
@@ -133,112 +199,92 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
 	# Print New Line on Complete
 	if iteration == total: 
 		print()
-  
-np.random.seed(239)      
-nr_qubits = 3
-nr_layers = 4
-batch_size = 100
-shots = 2000
-iterations = 10
 
-key = ""
-for i in range(nr_qubits):
-    key += str(i)
+# Main function which runs the variational classifier
+def main():
+    # Set up qubit register
+    qubits = [cirq.GridQubit(i, 0) for i in range(nr_qubits)]
 
-#Set up input and output qubits.
-qubits = [cirq.GridQubit(i, 0) for i in range(nr_qubits)]
+    # Load the data and split parameters and labels
+    df = pd.read_csv("QA_data_x.csv")
+    X = df.iloc[:,:3].to_numpy()
+    Y = df.iloc[:,3].to_numpy()
 
-df = pd.read_csv("QA_data_x.csv")
-X = df.iloc[:,:3].to_numpy()
-Y = df.iloc[:,3].to_numpy()
+    # Initialise training data
+    rows = random.sample(list(enumerate(X)),int(np.round((4/5)*len(X)))) #  Get 80% of the data as training data
+    X_t = [x[1] for x in rows]                                           #  Get the parameters
+    Y_t = Y[[x[0] for x in rows]]                                        #  Get the labels
 
-indexes = np.array(range(len(X)))
-m = int(np.round((4/5)*len(X)))
-#train = np.random.randint(0, len(X), (m,))
-train = np.random.choice(len(X), m, replace=False)
-test = indexes[~np.isin(indexes,train)]
-X_t = X[train,:]
-Y_t = Y[train]
+#     indexes = np.array(range(len(X)))                  # 
+#     m = int(np.round((4/5)*len(X)))                    # 
+#     train = np.random.choice(len(X), m, replace=False) # 
+#     test = indexes[~np.isin(indexes,train)]            # 
+#     X_t = X[train,:]                                   # 
+#     Y_t = Y[train]                                     #
 
-nr_par = (nr_qubits*2)*(nr_layers+1)
-theta_star = np.load("theta_star.npy")
-init_theta = np.random.rand(nr_par,)*(2*pi)
-i#nit_theta = np.ones([nr_par,])*pi
-theta = init_theta
-b = 0
-theta = np.append(theta,b)
-eye = np.eye(nr_par)
-c = 0.1
-a = 2*pi*0.1
-alpha = 0.602
-gamma = 0.101
-parameters = np.array([a,c,alpha,gamma])
-iz = np.array(range(m))
-plot_ix = 5
-P = int(iterations/plot_ix)
-tot_loss = np.zeros(P)
-Tot_Loss = np.zeros(iterations)
+    # Initialise theta
+    nr_par = (nr_qubits*2)*(nr_layers+1)
+    init_theta = np.random.rand(nr_par,)*(2*pi)
+    b = 0
+    theta = np.append(init_theta,b)
 
-
-####################################################
-#   Calibration Step
-####################################################
-
-#stat = 25
-#hold_c0 = parameters[0]
-#initial_c = parameters[1]
-#delta_obj = 0
-#for i in range(stat):
-#    print(i)
-#    delta = 2 * np.random.randint(2, size = len(theta)) - 1
-#    obj_plus = J_w(theta+initial_c*delta, X_t, qubits, nr_layers, shots)
-#    obj_minus = J_w(theta+initial_c*delta, X_t, qubits, nr_layers, shots)
-#    loss_p = squared_loss(Y_t, obj_plus)
-#    loss_m = squared_loss(Y_t, obj_minus)
-#    delta_obj += np.absolute(loss_p - loss_m) / stat
+    # Initialise classifier parameters
+    eye = np.eye(nr_par)
+    a = 2.5
+    c = 0.1
+    alpha = 0.602
+    gamma = 0.101
+    parameters = np.array([a,c,alpha,gamma])
+    batch_ix = np.array(range(len(X_t)))
+    plot_ix = 5
+    P = int(iterations/plot_ix)
+    tot_loss = np.zeros(P)
+    Tot_Loss = np.zeros(iterations)
+    z = a/pi
+    loss_est = 0
+    iw = 0
     
-#c_new = hold_c0 * 2 / delta_obj * initial_c    
-    
-####################################################
+    # Start progress bar
+    start = time.time()
+    printProgressBar(0, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
+    # Start iterations
+    for k in range(1,iterations+1):
+        # Update parameters
+        #batch_ix = np.random.randint(0, len(X_t), (batch_size,))
+        c_n = c/(k**(gamma))
+        a_n = a/(k**(alpha))
+        z_n = z/(k**(alpha))
+        gradient = np.zeros(nr_par)
+        delta_n = 2*np.random.randint(2, size = nr_par+1) - 1
 
-a = 2.5
-z = a/pi
-loss_est = 0
-iw = 0
-start = time.time()
-printProgressBar(1, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
-for k in range(1,iterations+1): 
-    printProgressBar((k-1)*nr_par, iterations*nr_par, prefix = 'Progress:', suffix = 'Complete', length = 50)
-    #batch_ix = np.random.randint(0, len(X_t), (batch_size,))
-    batch_ix = iz
-    
-    c_n = c/(k**(gamma))
-    a_n = a/(k**(alpha))
-    z_n = z/(k**(alpha))
-    gradient = np.zeros(nr_par)
-    delta_n = 2*np.random.randint(2, size = nr_par+1) - 1
-    
-    p_plus = J_w(theta+c_n*delta_n, X_t, qubits, nr_layers, shots)
-    p_minus= J_w(theta-c_n*delta_n, X_t, qubits, nr_layers, shots)
-    loss_plus = R(Y_t, p_plus, theta[-1]) #squared_loss(Y_t, p_plus) #R(Y_t, p_plus, theta[-1])
-    loss_minus= R(Y_t, p_minus, theta[-1])#squared_loss(Y_t, p_minus)#R(Y_t, p_minus, theta[-1])
+        # Run variational classifier with theta+delta and theta-delta
+        p_plus  = J_w(theta+c_n*delta_n, X_t, qubits, nr_layers, shots)
+        p_minus = J_w(theta-c_n*delta_n, X_t, qubits, nr_layers, shots)
+        # Calculate the loss for each run
+        loss_plus  = R(Y_t, p_plus, theta[-1]) 
+        loss_minus = R(Y_t, p_minus, theta[-1])
 
-    grad = ((loss_plus - loss_minus)/(2*c_n))/delta_n
-    theta[1:-1] = (theta[1:-1] - a_n*grad[1:-1]) #% (2*pi)
-    theta[-1] = (theta[-1] - z_n*grad[-1]) 
-    # parameter b is probably taking to large of a steps.
-   
-    Tot_Loss[k-1] = (loss_plus + loss_minus)/2
-    printProgressBar(1+k, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
+        # Compute gradient and update theta accordingly
+        grad = ((loss_plus - loss_minus)/(2*c_n))/delta_n
+        theta[1:-1] = (theta[1:-1] - a_n*grad[1:-1]) #% (2*pi)
+        theta[-1] = (theta[-1] - z_n*grad[-1]) 
+        # parameter b is probably taking too large steps.
 
-end = time.time()    
-printProgressBar(iterations, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
+        # Save average loss for plotting
+        Tot_Loss[k-1] = (loss_plus + loss_minus)/2
+        # Add step to progress bar
+        printProgressBar(k, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
 
-print(end - start)
+    # Finish progress bar
+    printProgressBar(iterations, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
+    end = time.time()    
+    # Print time taken for all iterations
+    print(end - start)
 
-Y_pm = 2*Y_t - 1
-p_hat = J_w(theta, X_t, qubits, nr_layers, 1000)
+    # Plot average loss per iteration over all iterations
+    fig = plt.figure(figsize=(15,10))
+    plt.plot(range(1,iterations+1), Tot_Loss, 'g-', markersize=2)
+# Nodig Tot_Loss, seed, eind_theta
 
-fig = plt.figure(figsize=(15,10))
-ax = plt.gca()
-plt.plot(range(1,iterations+1), Tot_Loss, 'g-', markersize=2)
+# Start main
+main()
