@@ -19,7 +19,7 @@ import time
 import os
 
 # Initialisation of some parameters
-seed = 4312             # Random seed
+seed = 8092             # Random seed
 np.random.seed(seed)    # Initialising andom seed
 nr_qubits = 3           # Number of qubits
 nr_layers = 4           # Number of layers
@@ -217,14 +217,13 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
 		print()
 
 def nice_plot(file_in, style, file_out='test.png', title='dummy', X='x-axis', Y='y-axis', marker=2):
+    fig = plt.figure(figsize=(12,9))
+    ax = plt.subplot(111)    
+    ax.spines["top"].set_visible(False)   
+    ax.spines["right"].set_visible(False)
     for i in range(len(file_in)):
-        nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta = read_from_file(file_in[i])
+        title, nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta = read_from_file(file_in[i])
         # Plot average loss per iteration over all iterations
-        fig = plt.figure(figsize=(12,9))
-        ax = plt.subplot(111)    
-        ax.spines["top"].set_visible(False)   
-        ax.spines["right"].set_visible(False)
-
         mi = min(total_loss)
         ma = max(total_loss)
         plt.ylim(mi-0.1*mi, ma+0.1*mi)    
@@ -239,13 +238,14 @@ def nice_plot(file_in, style, file_out='test.png', title='dummy', X='x-axis', Y=
         plt.ylabel(X, fontsize=16)  
         plt.xlabel(Y, fontsize=16)  
         plt.title(title, fontsize=22)  
-        plt.plot(range(1,iterations+1), total_loss, style[i], markersize=marker)
-
+        plt.plot(range(1,iterations+1), total_loss, style[i], markersize=marker, label=title)
+    plt.legend()
     plt.savefig(file_out, bbox_inches="tight")
     
 # Reads the data from a file
 def read_from_file(filename):
     f = open(filename,"r")
+    title = f.readline()
     f.readline()
     nr_qubits  = int(f.readline().split(" ")[-1])
     nr_layers  = int(f.readline().split(" ")[-1])
@@ -262,7 +262,7 @@ def read_from_file(filename):
     f.readline()
     for i in range((nr_qubits*2)*(nr_layers+1)):
         theta.append(float(f.readline().strip()))
-    return nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta
+    return title, nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta
 
 # Writes data to a file
 def write_to_file(var):
@@ -274,41 +274,48 @@ def write_to_file(var):
     filename = filename.format(counter)
     f = open(filename,"w+")
     # Write Params, Tot_Loss and end_theta to file
+    f.write("%s\n" % var[0])
     f.write("RUN PARAMS:\n")
-    f.write("\tnr_qubits:  %d\n" % var[0])
-    f.write("\tnr_layers:  %d\n" % var[1])
-    f.write("\tbatch_size: %d\n" % var[2])
-    f.write("\tshots:      %d\n" % var[3])
-    f.write("\titerations: %d\n" % var[4])
-    f.write("\tseed:       %d\n" % var[5])
+    f.write("\tnr_qubits:  %d\n" % var[1])
+    f.write("\tnr_layers:  %d\n" % var[2])
+    f.write("\tbatch_size: %d\n" % var[3])
+    f.write("\tshots:      %d\n" % var[4])
+    f.write("\titerations: %d\n" % var[5])
+    f.write("\tseed:       %d\n" % var[6])
     f.write("\tRESULTS:\n")
     f.write("\t\ttotal_loss:\n\t\t\t")
-    f.write("\n\t\t\t".join(str(elem) for elem in var[6]))
-    f.write("\n\t\teind_theta:\n\t\t\t")
     f.write("\n\t\t\t".join(str(elem) for elem in var[7]))
-    f.write("\n\t\tAccuracy train %f\n" % var[8])
-    f.write("\t\tAccuracy test  %f\n" % var[9])
+    f.write("\n\t\teind_theta:\n\t\t\t")
+    f.write("\n\t\t\t".join(str(elem) for elem in var[8]))
+    f.write("\n\t\tAccuracy train %f\n" % var[9])
+    f.write("\t\tAccuracy test  %f\n" % var[10])
     
 # Main function which runs the variational classifier
 def main():
     # Set up qubit register
     qubits = [cirq.GridQubit(i, 0) for i in range(nr_qubits)]
-    
+    data_file = "QA_data_2pi.csv"
     # Load the data and split parameters and labels
-    df = pd.read_csv("QA_data_pi.csv")
+    df = pd.read_csv(data_file)
     X = df.iloc[:,:3].to_numpy()
     Y = df.iloc[:,3].to_numpy()
     Y = 2*Y - 1 
     
-    # Initialise training data
-    rows = random.sample(list(enumerate(X)),int(np.round((4/5)*len(X)))) #  Get 80% of the data as training data
+    # Initialise training data (make sure it is balanced by repeating until it is)
+#     get_data = True
+#     ratio = sum((Y+1)/2)/len(Y)
+#     while get_data:
+    rows = random.sample(list(enumerate(X)),int(np.round((4/5)*len(X))))
     i_t = [x[0] for x in rows]
     X_t = X[i_t]
     Y_t = Y[i_t]
     i_s = [i for i in range(len(X)) if i not in i_t]
     X_s = X[i_s]
     Y_s = Y[i_s]
-                                           
+#         ratio_t = sum((Y_t+1)/2)/len(Y_t)
+#         if ratio-0.02 <= ratio_t and ratio_t <= ratio+0.02:
+#             get_data = False
+                                     
     # Initialise theta
     nr_par = (nr_qubits*2)*(nr_layers+1)
     init_theta = np.random.rand(nr_par,)*(2*pi)
@@ -371,8 +378,8 @@ def main():
     print("test accuracy:", acc_s)
     
     # Write important data to file
-    write_to_file([nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta, acc_t, acc_s])
+    write_to_file([data_file, nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta, acc_t, acc_s])
     
 # Start main
-main()
-# nice_plot(['data.txt'], ['g-'])
+# main()
+nice_plot(['data_1_1.txt', 'data_pi_1.txt', 'data_2pi_1.txt'], ['g-','r-','b-'])
