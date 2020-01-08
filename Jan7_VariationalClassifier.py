@@ -294,7 +294,7 @@ def write_to_file(var):
 def main():
     # Set up qubit register
     qubits = [cirq.GridQubit(i, 0) for i in range(nr_qubits)]
-    data_file = "QA_data_2pi.csv"
+    data_file = "QA_data_1_unbal.csv"
     # Load the data and split parameters and labels
     df = pd.read_csv(data_file)
     X = df.iloc[:,:3].to_numpy()
@@ -302,19 +302,19 @@ def main():
     Y = 2*Y - 1 
     
     # Initialise training data (make sure it is balanced by repeating until it is)
-#     get_data = True
-#     ratio = sum((Y+1)/2)/len(Y)
-#     while get_data:
-    rows = random.sample(list(enumerate(X)),int(np.round((4/5)*len(X))))
-    i_t = [x[0] for x in rows]
-    X_t = X[i_t]
-    Y_t = Y[i_t]
-    i_s = [i for i in range(len(X)) if i not in i_t]
-    X_s = X[i_s]
-    Y_s = Y[i_s]
-#         ratio_t = sum((Y_t+1)/2)/len(Y_t)
-#         if ratio-0.02 <= ratio_t and ratio_t <= ratio+0.02:
-#             get_data = False
+    get_data = True
+    ratio = sum((Y+1)/2)/len(Y)
+    while get_data:
+        rows = random.sample(list(enumerate(X)),int(np.round((4/5)*len(X))))
+        i_t = [x[0] for x in rows]
+        X_t = X[i_t]
+        Y_t = Y[i_t]
+        i_s = [i for i in range(len(X)) if i not in i_t]
+        X_s = X[i_s]
+        Y_s = Y[i_s]
+        ratio_t = sum((Y_t+1)/2)/len(Y_t)
+        if ratio-0.02 <= ratio_t and ratio_t <= ratio+0.02:
+            get_data = False
                                      
     # Initialise theta
     nr_par = (nr_qubits*2)*(nr_layers+1)
@@ -382,4 +382,4 @@ def main():
     
 # Start main
 # main()
-nice_plot(['data_1_1.txt', 'data_pi_1.txt', 'data_2pi_1.txt'], ['g-','r-','b-'])
+nice_plot(['data2.txt','data1.txt','data0.txt'], ['g-','r-','b-'],file_out='data_all_norm_unbal.png')
