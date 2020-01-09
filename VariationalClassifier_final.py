@@ -3,7 +3,7 @@ Parameterized quantum circuits for supervised learning
 
 @author: Vince Hasse
 @author: Martijn Swenne
-Last edited:
+Last edited: 01-09-2020
 """
 
 import matplotlib.pyplot as plt
@@ -125,7 +125,7 @@ def probability_estimate(results, shots):
             p_hold += counter[j] 
     return p_hold/shots
 
-# TODO
+# Assigns labels based on prediction and bias
 def assign_label(p, b):
     labels = np.ones([len(p),])*-1
     for i in range(len(p)):
@@ -133,22 +133,7 @@ def assign_label(p, b):
             labels[i] = 1
     return labels    
 
-# TODO
-def R(y, probs, b):
-    p = 1 - probs
-    y = 2*y - 1
-    loss = 0
-    R = 200
-    for k in range(len(y)):
-        if y[k] == 1:
-            x = (math.sqrt(R)*(.5 - (probs[k] - y[k]*(b/2))))/math.sqrt(2*probs[k]*p[k])
-        else:
-            x = (math.sqrt(R)*(.5 - (p[k] - y[k]*(b/2))))/math.sqrt(2*probs[k]*p[k])
-        loss = loss + (1 / (1 + math.exp(-x)))
-    loss = loss / len(probs)
-    return loss
-
-# TODO
+# Returns the emperical risk of the predictions made by the classifier
 def empirical_risk(labels, pred_1, b):
     pred_0 = 1 - pred_1
     #pm = 2*labels - 1
@@ -164,7 +149,7 @@ def empirical_risk(labels, pred_1, b):
     return loss
 
 
-# TODO
+# Runs the circuit and parses the result to a probability estimate
 def J(theta, X, qubits, nr_layers, shots):
     simulator = cirq.Simulator()
     p = np.zeros([len(X),])
@@ -175,68 +160,26 @@ def J(theta, X, qubits, nr_layers, shots):
         p[i] = probability_estimate(results, shots)
     return p
 
-def calibration(a, c, alpha, gamma, X_t, Y_t, qubits, nr_layers, shots):
-    number_q = len(qubits)
-    number_par = (number_q*2)*(nr_layers+1)
-    theta_0 = np.ones([number_par,])
-    theta_0 = np.append(0)
-    stat = 25
-    initial_c = c
-    delta_obj = 0
-    for i in range(stat):
-       print(i)
-       delta = 2 * np.random.randint(2, size = len(theta_0)) - 1
-       p_plus = J(theta_0+initial_c*delta, X_t, qubits, nr_layers, shots)
-       p_minus = J(theta_0+initial_c*delta, X_t, qubits, nr_layers, shots)
-       loss_p = empirical_risk(Y_t, p_plus, theta_0[-1])
-       loss_m = empirical_risk(Y_t, p_minus, theta_0[-1])
-       delta_obj += np.absolute(loss_p - loss_m) / stat
-
-    a_new = a * 2 / delta_obj * initial_c
-    return a_new    
-
-# Helpful function that shows a progress bar
-def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█'):
-	"""
-	Call in a loop to create terminal progress bar
-	@params:
-		iteration   - Required  : current iteration (Int)
-		total	   - Required  : total iterations (Int)
-		prefix	  - Optional  : prefix string (Str)
-		suffix	  - Optional  : suffix string (Str)
-		decimals	- Optional  : positive number of decimals in percent complete (Int)
-		length	  - Optional  : character length of bar (Int)
-		fill		- Optional  : bar fill character (Str)
-	"""
-	percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
-	filledLength = int(length * iteration // total)
-	bar = fill * filledLength + '-' * (length - filledLength)
-	print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = '\r')
-	# Print New Line on Complete
-	if iteration == total: 
-		print()
-
+# Makes a nice plot out of the data from file_in
 def nice_plot(file_in, style, file_out='test.png', title='dummy', X='x-axis', Y='y-axis', marker=2):
     fig = plt.figure(figsize=(12,9))
     ax = plt.subplot(111)    
     ax.spines["top"].set_visible(False)   
     ax.spines["right"].set_visible(False)
     for i in range(len(file_in)):
-        title, nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta = read_from_file(file_in[i])
+        _, nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta = read_from_file(file_in[i])
         # Plot average loss per iteration over all iterations
         mi = min(total_loss)
         ma = max(total_loss)
         plt.ylim(mi-0.1*mi, ma+0.1*mi)    
         plt.xlim(0, iterations+2) 
         yt = [0.15,0.2,0.3,0.4,0.5,0.6,0.65]
-        plt.yticks(yt,yt)#,fontsize=14) 
-    #     plt.xticks(fontsize=14) 
-
+        plt.yticks(yt,yt) 
         for y in yt[1:-1]:    
             plt.plot(range(0, iterations+2), [y] * len(range(0, iterations+2)), "--", lw=0.5, color="black", alpha=0.3)
 
-        plt.ylabel(X, fontsize=16)  
-        plt.xlabel(Y, fontsize=16)  
+        plt.ylabel(Y, fontsize=16)  
+        plt.xlabel(X, fontsize=16)  
         plt.title(title, fontsize=22)  
         plt.plot(range(1,iterations+1), total_loss, style[i], markersize=marker, label=title)
     plt.legend()
@@ -289,12 +232,16 @@ def write_to_file(var):
     f.write("\n\t\t\t".join(str(elem) for elem in var[8]))
     f.write("\n\t\tAccuracy train %f\n" % var[9])
     f.write("\t\tAccuracy test  %f\n" % var[10])
+    f.write("\t\tsum train  %d\n" % var[11])
+    f.write("\t\tsum test  %d\n" % var[12])
+    f.write("\t\tlength train  %d\n" % var[13])
+    f.write("\t\tlength test  %d\n" % var[14])
     
 # Main function which runs the variational classifier
 def main():
     # Set up qubit register
     qubits = [cirq.GridQubit(i, 0) for i in range(nr_qubits)]
-    data_file = "QA_data_1_unbal.csv"
+    data_file = "QA_data_2pi_unbal.csv"
     # Load the data and split parameters and labels
     df = pd.read_csv(data_file)
     X = df.iloc[:,:3].to_numpy()
@@ -315,7 +262,11 @@ def main():
         ratio_t = sum((Y_t+1)/2)/len(Y_t)
         if ratio-0.02 <= ratio_t and ratio_t <= ratio+0.02:
             get_data = False
-                                     
+    sum_Yt = int(sum((Y_t+1)/2))
+    sum_Ys = int(sum((Y_s+1)/2))
+    len_Yt = int(len(Y_t))
+    len_Ys = int(len(Y_s))
+                           
     # Initialise theta
     nr_par = (nr_qubits*2)*(nr_layers+1)
     init_theta = np.random.rand(nr_par,)*(2*pi)
@@ -332,9 +283,7 @@ def main():
     grad = np.zeros(nr_par)
     total_loss = np.zeros(iterations)
         
-    # Start progress bar
     start = time.time()
-    printProgressBar(0, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
     # Start iterations
     for k in range(1,iterations+1):
         # Update parameters
@@ -358,12 +307,7 @@ def main():
         
         # Save average loss for plotting
         total_loss[k-1] = (loss_plus + loss_minus)/2
-        # Add step to progress bar
-        printProgressBar(k, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
-        
-    # Finish progress bar
-    printProgressBar(iterations, iterations, prefix = 'Progress:', suffix = 'Complete', length = 50)
-    end = time.time()    
+        end = time.time()    
     # Print time taken for all iterations
     print(end - start)
         
@@ -378,8 +322,7 @@ def main():
     print("test accuracy:", acc_s)
     
     # Write important data to file
-    write_to_file([data_file, nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta, acc_t, acc_s])
+    write_to_file([data_file, nr_qubits, nr_layers, batch_size, shots, iterations, seed, total_loss, theta, acc_t, acc_s, sum_Yt,sum_Ys,len_Yt, len_Ys])
     
 # Start main
-# main()
-nice_plot(['data2.txt','data1.txt','data0.txt'], ['g-','r-','b-'],file_out='data_all_norm_unbal.png')
+main()
